@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌍 나의 버킷리스트 지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+/* ── 변수 ── */
+:root {
+  --bg:        #0d0f1a;
+  --panel:     #13162a;
+  --panel2:    #1a1d35;
+  --border:    #252848;
+  --text:      #e0e4ff;
+  --text-dim:  #6b72a8;
+  --accent:    #4f8cff;
+
+  --travel:    #00d4ff;
+  --food:      #ff6b35;
+  --challenge: #ffd60a;
+  --culture:   #c77dff;
+  --etc:       #74c69d;
+
+  --panel-w:   340px;
+  --radius:    12px;
+  --trans:     all .2s ease;
+}
+
+/* ── 리셋 ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Noto Sans KR', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+
+/* ── 레이아웃 ── */
+#map { flex: 1; height: 100vh; z-index: 1; }
+
+#sidebar {
+  width: var(--panel-w);
+  height: 100vh;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+/* ── 사이드바 헤더 ── */
+.sb-header {
+  padding: 20px 18px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel2);
+}
+.sb-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sb-title span { font-size: 22px; }
+
+/* ── 통계 배지 ── */
+.stats {
+  display: flex;
+  gap: 10px;
+}
+.stat-badge {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: center;
+}
+.stat-badge .num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+.stat-badge .lbl { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.stat-badge.done .num { color: var(--etc); }
+
+/* ── 필터 ── */
+.filter-section {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.filter-btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: var(--trans);
+  white-space: nowrap;
+}
+.filter-btn:hover { border-color: var(--accent); color: var(--text); }
+.filter-btn.active { color: #fff; border-color: transparent; }
+.filter-btn[data-cat="all"].active    { background: var(--text-dim); }
+.filter-btn[data-cat="travel"].active { background: var(--travel); }
+.filter-btn[data-cat="food"].active   { background: var(--food); }
+.filter-btn[data-cat="challenge"].active { background: var(--challenge); color: #000; }
+.filter-btn[data-cat="culture"].active { background: var(--culture); }
+.filter-btn[data-cat="etc"].active    { background: var(--etc); color: #000; }
+.filter-btn[data-done="all"].active   { background: var(--text-dim); }
+.filter-btn[data-done="todo"].active  { background: var(--accent); }
+.filter-btn[data-done="done"].active  { background: var(--etc); color: #000; }
+
+/* ── 아이템 목록 ── */
+#item-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#item-list::-webkit-scrollbar { width: 4px; }
+#item-list::-webkit-scrollbar-track { background: transparent; }
+#item-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.empty-msg {
+  margin: auto;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 2;
+}
+.empty-msg .big { font-size: 36px; display: block; margin-bottom: 8px; }
+
+/* ── 아이템 카드 ── */
+.item-card {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  cursor: pointer;
+  transition: var(--trans);
+  position: relative;
+  border-left: 3px solid var(--border);
+}
+.item-card:hover { border-color: var(--accent); transform: translateX(2px); }
+.item-card.done-card { opacity: .5; }
+.item-card[data-cat="travel"]    { border-left-color: var(--travel); }
+.item-card[data-cat="food"]      { border-left-color: var(--food); }
+.item-card[data-cat="challenge"] { border-left-color: var(--challenge); }
+.item-card[data-cat="culture"]   { border-left-color: var(--culture); }
+.item-card[data-cat="etc"]       { border-left-color: var(--etc); }
+
+.card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.card-title { font-size: 13px; font-weight: 600; line-height: 1.4; flex: 1; }
+.card-done-check {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1.5px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; flex-shrink: 0; margin-top: 1px;
+  transition: var(--trans);
+}
+.done-card .card-done-check { background: var(--etc); border-color: var(--etc); color: #000; }
+.card-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.card-cat-icon { font-size: 13px; }
+.card-stars { font-size: 11px; color: var(--challenge); letter-spacing: 1px; }
+.card-memo { font-size: 11px; color: var(--text-dim); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── 추가 버튼 ── */
+.add-hint {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.add-hint span { color: var(--accent); }
+
+/* ── 모달 오버레이 ── */
+#modal-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.65);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(3px);
+}
+#modal-overlay.open { display: flex; animation: fadeIn .18s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+#modal {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 28px 22px;
+  width: 420px;
+  max-width: 95vw;
+  box-shadow: 0 24px 60px rgba(0,0,0,.7);
+  animation: slideUp .2s ease;
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.modal-title {
+  font-size: 16px; font-weight: 700; margin-bottom: 20px;
+  display: flex; align-items: center; gap: 8px;
+}
+.modal-title .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+/* ── 폼 ── */
+.form-group { margin-bottom: 14px; }
+.form-label { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display: block; }
+.form-input, .form-textarea, .form-select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  transition: var(--trans);
+  outline: none;
+}
+.form-input:focus, .form-textarea:focus, .form-select:focus { border-color: var(--accent); }
+.form-textarea { resize: vertical; min-height: 72px; }
+.form-select option { background: var(--panel2); }
+
+/* ── 우선순위 별 ── */
+.star-row { display: flex; gap: 6px; }
+.star-btn {
+  font-size: 22px; cursor: pointer; transition: transform .1s;
+  background: none; border: none; padding: 0; line-height: 1;
+  filter: grayscale(1) opacity(.4);
+}
+.star-btn.on { filter: none; }
+.star-btn:hover { transform: scale(1.2); }
+
+/* ── 좌표 표시 ── */
+.coord-row { font-size: 11px; color: var(--text-dim); margin-bottom: 14px; }
+.coord-row span { color: var(--accent); font-family: monospace; }
+
+/* ── 모달 버튼 ── */
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.btn {
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  padding: 9px 20px; border-radius: 8px; border: none;
+  cursor: pointer; transition: var(--trans);
+}
+.btn-cancel { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); }
+.btn-cancel:hover { color: var(--text); }
+.btn-save { background: var(--accent); color: #fff; }
+.btn-save:hover { background: #6fa3ff; }
+.btn-delete { background: transparent; color: #ff5c6c; border: 1px solid #ff5c6c33; margin-right: auto; }
+.btn-delete:hover { background: #ff5c6c22; }
+
+/* ── Leaflet 팝업 커스텀 ── */
+.leaflet-popup-content-wrapper {
+  background: var(--panel2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,.6) !important;
+  color: var(--text) !important;
+  font-family: 'Noto Sans KR', sans-serif !important;
+}
+.leaflet-popup-tip { background: var(--panel2) !important; }
+.leaflet-popup-content { margin: 14px 16px !important; min-width: 200px; }
+.popup-title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.popup-meta { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; display: flex; gap: 10px; align-items: center; }
+.popup-memo { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.6; }
+.popup-actions { display: flex; gap: 6px; }
+.popup-btn {
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer;
+  transition: var(--trans);
+}
+.popup-btn-done { background: var(--etc); color: #000; }
+.popup-btn-done.done { background: var(--border); color: var(--text-dim); }
+.popup-btn-edit { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+.popup-btn-del  { background: transparent; border: 1px solid #ff5c6c44; color: #ff5c6c; }
+.popup-btn:hover { opacity: .85; }
+
+/* ── 마커 SVG 드롭 애니메이션 ── */
+@keyframes markerDrop {
+  from { transform: translateY(-20px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+.custom-marker { animation: markerDrop .3s ease; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<aside id="sidebar">
+  <div class="sb-header">
+    <div class="sb-title"><span>🌍</span>나의 버킷리스트</div>
+    <div class="stats">
+      <div class="stat-badge">
+        <div class="num" id="stat-total">0</div>
+        <div class="lbl">전체</div>
+      </div>
+      <div class="stat-badge done">
+        <div class="num" id="stat-done">0</div>
+        <div class="lbl">달성</div>
+      </div>
+      <div class="stat-badge">
+        <div class="num" id="stat-todo">0</div>
+        <div class="lbl">남은 꿈</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="filter-section">
+    <div class="filter-row">
+      <button class="filter-btn active" data-cat="all">전체</button>
+      <button class="filter-btn" data-cat="travel">🌍 여행</button>
+      <button class="filter-btn" data-cat="food">🍜 음식</button>
+      <button class="filter-btn" data-cat="challenge">⚡ 도전</button>
+      <button class="filter-btn" data-cat="culture">🎭 문화</button>
+      <button class="filter-btn" data-cat="etc">✨ 기타</button>
+    </div>
+    <div class="filter-row">
+      <button class="filter-btn active" data-done="all">전체</button>
+      <button class="filter-btn" data-done="todo">미달성</button>
+      <button class="filter-btn" data-done="done">달성 ✓</button>
+    </div>
+  </div>
+
+  <div id="item-list"></div>
+
+  <div class="add-hint">지도를 <span>클릭</span>해서 버킷리스트를 추가하세요</div>
+</aside>
+
+<!-- 추가/편집 모달 -->
+<div id="modal-overlay">
+  <div id="modal">
+    <div class="modal-title"><div class="dot"></div><span id="modal-title-text">새 버킷리스트</span></div>
+    <div class="coord-row">📍 <span id="coord-display"></span></div>
+    <div class="form-group">
+      <label class="form-label">제목 *</label>
+      <input id="f-title" class="form-input" placeholder="예: 오로라 보기" maxlength="60">
+    </div>
+    <div class="form-group">
+      <label class="form-label">메모</label>
+      <textarea id="f-memo" class="form-textarea" placeholder="언제, 누구와, 어떻게..."></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">카테고리</label>
+      <select id="f-cat" class="form-select">
+        <option value="travel">🌍 여행</option>
+        <option value="food">🍜 음식</option>
+        <option value="challenge">⚡ 도전</option>
+        <option value="culture">🎭 문화</option>
+        <option value="etc">✨ 기타</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">우선순위</label>
+      <div class="star-row" id="star-row">
+        <button class="star-btn" data-v="1">⭐</button>
+        <button class="star-btn" data-v="2">⭐</button>
+        <button class="star-btn" data-v="3">⭐</button>
+        <button class="star-btn" data-v="4">⭐</button>
+        <button class="star-btn" data-v="5">⭐</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-delete" id="btn-delete" style="display:none" onclick="deleteCurrentItem()">삭제</button>
+      <button class="btn btn-cancel" onclick="closeModal()">취소</button>
+      <button class="btn btn-save" onclick="saveModal()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 상수 ──────────────────────────────────────────────────────────────────
+const CAT_COLOR = { travel:'#00d4ff', food:'#ff6b35', challenge:'#ffd60a', culture:'#c77dff', etc:'#74c69d' };
+const CAT_ICON  = { travel:'🌍', food:'🍜', challenge:'⚡', culture:'🎭', etc:'✨' };
+const CAT_LABEL = { travel:'여행', food:'음식', challenge:'도전', culture:'문화', etc:'기타' };
+const LS_KEY = 'bucket-list-map-v1';
+
+// ── 상태 ──────────────────────────────────────────────────────────────────
+let items   = [];
+let markers = {};          // id → L.marker
+let filter  = { cat: 'all', done: 'all' };
+let _editId = null;
+let _pendingLatLng = null;
+let _priority = 3;
+
+// ── UUID ──────────────────────────────────────────────────────────────────
+const uuid = () => crypto.randomUUID ? crypto.randomUUID()
+  : Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+// ── localStorage ──────────────────────────────────────────────────────────
+function load() {
+  try { items = JSON.parse(localStorage.getItem(LS_KEY)) || []; }
+  catch { items = []; }
+}
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(items)); }
+
+// ── 샘플 데이터 ───────────────────────────────────────────────────────────
+const SAMPLES = [
+  { title:'아이슬란드에서 오로라 보기', memo:'겨울에 레이캬비크 근처 황야에서', cat:'travel', priority:5, done:false, lat:64.9, lng:-18.1 },
+  { title:'도쿄 라멘 골목 투어', memo:'신주쿠~이케부쿠로 하루 종일', cat:'food', priority:4, done:true, lat:35.69, lng:139.69 },
+  { title:'킬리만자로 등정', memo:'아프리카 최고봉 5895m', cat:'challenge', priority:5, done:false, lat:-3.07, lng:37.35 },
+  { title:'바르셀로나 사그라다 파밀리아', memo:'가우디 건축 직접 보기', cat:'culture', priority:3, done:false, lat:41.40, lng:2.17 },
+  { title:'뉴욕 타임스퀘어 새해 카운트다운', memo:'31일 자정에 광장에 있기', cat:'etc', priority:4, done:false, lat:40.76, lng:-73.98 },
+];
+
+function initSamples() {
+  if (items.length === 0) {
+    items = SAMPLES.map(s => ({ id: uuid(), createdAt: new Date().toISOString(), ...s }));
+    save();
+  }
+}
+
+// ── 지도 초기화 ───────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([25, 15], 2);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+map.on('click', e => {
+  _pendingLatLng = e.latlng;
+  openModal(null, e.latlng);
+});
+
+// ── 커스텀 마커 SVG ───────────────────────────────────────────────────────
+function makeIcon(cat, done) {
+  const c = done ? '#555' : CAT_COLOR[cat];
+  const hi = done ? '#666' : lighten(CAT_COLOR[cat]);
+  const ico = done ? '✓' : CAT_ICON[cat];
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
+  <defs>
+    <filter id="glow-${cat}${done?'d':''}" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <ellipse cx="16" cy="40" rx="6" ry="2" fill="rgba(0,0,0,.35)"/>
+  <path d="M16 2 C8 2 2 8.5 2 16.5 C2 26 16 40 16 40 C16 40 30 26 30 16.5 C30 8.5 24 2 16 2Z"
+        fill="${c}" filter="url(#glow-${cat}${done?'d':''})" opacity="${done?.6:1}"/>
+  <path d="M16 3 C9 3 4 9 4 16.5 C4 17.5 4.2 18.5 4.5 19.5 C6 14 10.5 10 16 10 C21.5 10 26 14 27.5 19.5 C27.8 18.5 28 17.5 28 16.5 C28 9 23 3 16 3Z"
+        fill="${hi}" opacity=".45"/>
+  <circle cx="16" cy="16" r="8" fill="rgba(0,0,0,.25)"/>
+  <text x="16" y="20" text-anchor="middle" font-size="${done?'11':'13'}" fill="white" font-family="sans-serif">${ico}</text>
+</svg>`;
+  return L.divIcon({
+    html: `<div class="custom-marker">${svg}</div>`,
+    className: '', iconSize: [32,42], iconAnchor: [16,42], popupAnchor: [0,-42]
+  });
+}
+
+function lighten(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, ((n>>16)&255)+80);
+  const g = Math.min(255, ((n>>8)&255)+80);
+  const b = Math.min(255, (n&255)+80);
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
+// ── 팝업 HTML ─────────────────────────────────────────────────────────────
+function makePopupHTML(item) {
+  const stars = '⭐'.repeat(item.priority) + '☆'.repeat(5 - item.priority);
+  const doneLabel = item.done ? '달성 취소' : '달성 완료 ✓';
+  const doneCls   = item.done ? 'done' : '';
+  return `
+<div class="popup-title">${esc(item.title)}</div>
+<div class="popup-meta">
+  <span>${CAT_ICON[item.cat]} ${CAT_LABEL[item.cat]}</span>
+  <span style="color:#ffd60a;font-size:11px">${stars}</span>
+  ${item.done ? '<span style="color:var(--etc);font-weight:700">✓ 달성</span>' : ''}
+</div>
+${item.memo ? `<div class="popup-memo">${esc(item.memo)}</div>` : ''}
+<div class="popup-actions">
+  <button class="popup-btn popup-btn-done ${doneCls}" onclick="toggleDone('${item.id}')">${doneLabel}</button>
+  <button class="popup-btn popup-btn-edit" onclick="openEditFromPopup('${item.id}')">편집</button>
+  <button class="popup-btn popup-btn-del"  onclick="confirmDelete('${item.id}')">삭제</button>
+</div>`;
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── 마커 렌더링 ───────────────────────────────────────────────────────────
+function renderMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  items.forEach(item => {
+    if (!passFilter(item)) return;
+    const m = L.marker([item.lat, item.lng], { icon: makeIcon(item.cat, item.done) });
+    m.bindPopup(makePopupHTML(item), { maxWidth: 260 });
+    m.addTo(map);
+    markers[item.id] = m;
+  });
+}
+
+function passFilter(item) {
+  if (filter.cat  !== 'all' && item.cat  !== filter.cat)  return false;
+  if (filter.done === 'done' && !item.done) return false;
+  if (filter.done === 'todo' &&  item.done) return false;
+  return true;
+}
+
+// ── 사이드 목록 렌더링 ────────────────────────────────────────────────────
+function renderList() {
+  const total = items.length;
+  const done  = items.filter(i => i.done).length;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-done').textContent  = done;
+  document.getElementById('stat-todo').textContent  = total - done;
+
+  const filtered = items.filter(passFilter)
+    .sort((a,b) => b.priority - a.priority || new Date(b.createdAt) - new Date(a.createdAt));
+
+  const list = document.getElementById('item-list');
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="empty-msg"><span class="big">🗺️</span>아직 버킷리스트가 없어요.<br>지도를 클릭해서 추가하세요!</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(item => `
+<div class="item-card ${item.done?'done-card':''}" data-cat="${item.cat}" onclick="flyToItem('${item.id}')">
+  <div class="card-top">
+    <div class="card-title">${esc(item.title)}</div>
+    <div class="card-done-check">${item.done?'✓':''}</div>
+  </div>
+  <div class="card-meta">
+    <span class="card-cat-icon">${CAT_ICON[item.cat]}</span>
+    <span class="card-stars">${'⭐'.repeat(item.priority)}</span>
+  </div>
+  ${item.memo ? `<div class="card-memo">${esc(item.memo)}</div>` : ''}
+</div>`).join('');
+}
+
+function flyToItem(id) {
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  map.flyTo([item.lat, item.lng], 8, { duration: 1.2 });
+  setTimeout(() => { if (markers[id]) markers[id].openPopup(); }, 1300);
+}
+
+// ── 달성 토글 ─────────────────────────────────────────────────────────────
+function toggleDone(id) {
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  item.done = !item.done;
+  save();
+  renderMarkers();
+  renderList();
+  // 팝업 갱신
+  setTimeout(() => { if (markers[id]) markers[id].openPopup(); }, 50);
+}
+
+// ── 삭제 ─────────────────────────────────────────────────────────────────
+function confirmDelete(id) {
+  if (!confirm('이 버킷리스트를 삭제할까요?')) return;
+  deleteById(id);
+  map.closePopup();
+}
+function deleteById(id) {
+  items = items.filter(i => i.id !== id);
+  save(); renderMarkers(); renderList();
+}
+function deleteCurrentItem() {
+  if (!_editId) return;
+  if (!confirm('이 버킷리스트를 삭제할까요?')) return;
+  deleteById(_editId);
+  closeModal();
+}
+
+// ── 모달 ──────────────────────────────────────────────────────────────────
+function setPriority(v) {
+  _priority = v;
+  document.querySelectorAll('.star-btn').forEach(b => {
+    b.classList.toggle('on', +b.dataset.v <= v);
+  });
+}
+
+document.querySelectorAll('.star-btn').forEach(b =>
+  b.addEventListener('click', () => setPriority(+b.dataset.v))
+);
+
+function openModal(id, latlng) {
+  _editId = id;
+  const item = id ? items.find(i => i.id === id) : null;
+  document.getElementById('modal-title-text').textContent = item ? '버킷리스트 편집' : '새 버킷리스트';
+  document.getElementById('btn-delete').style.display = item ? '' : 'none';
+
+  const ll = latlng || (item ? { lat: item.lat, lng: item.lng } : { lat: 0, lng: 0 });
+  _pendingLatLng = ll;
+  document.getElementById('coord-display').textContent =
+    `${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}`;
+
+  document.getElementById('f-title').value = item?.title || '';
+  document.getElementById('f-memo').value  = item?.memo  || '';
+  document.getElementById('f-cat').value   = item?.cat   || 'travel';
+  setPriority(item?.priority ?? 3);
+
+  document.getElementById('modal-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('f-title').focus(), 50);
+}
+
+function openEditFromPopup(id) {
+  map.closePopup();
+  openModal(id, null);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  _editId = null; _pendingLatLng = null;
+}
+
+function saveModal() {
+  const title = document.getElementById('f-title').value.trim();
+  if (!title) { document.getElementById('f-title').focus(); return; }
+
+  const data = {
+    title,
+    memo:     document.getElementById('f-memo').value.trim(),
+    cat:      document.getElementById('f-cat').value,
+    priority: _priority,
+    lat:      _pendingLatLng.lat,
+    lng:      _pendingLatLng.lng,
+  };
+
+  if (_editId) {
+    const item = items.find(i => i.id === _editId);
+    Object.assign(item, data);
+  } else {
+    items.push({ id: uuid(), done: false, createdAt: new Date().toISOString(), ...data });
+  }
+  save(); renderMarkers(); renderList(); closeModal();
+}
+
+// Enter로 저장
+document.getElementById('f-title').addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveModal();
+});
+// 오버레이 클릭 닫기
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+// ── 필터 버튼 ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.filter-btn[data-cat]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn[data-cat]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    filter.cat = b.dataset.cat;
+    renderMarkers(); renderList();
+  });
+});
+document.querySelectorAll('.filter-btn[data-done]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn[data-done]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    filter.done = b.dataset.done;
+    renderMarkers(); renderList();
+  });
+});
+
+// ── 시작 ──────────────────────────────────────────────────────────────────
+load();
+initSamples();
+renderMarkers();
+renderList();
+</script>
+</body>
+</html>
